@@ -47,6 +47,42 @@ describeMatrix("iterable", (t, { it, expect, describe }) => {
       expect(reads).toBe(readsAfterCancel);
     });
 
+    it("drops a value that arrives after the response is cancelled", async () => {
+      let release: ((result: IteratorResult<string>) => void) | undefined;
+      let reads = 0;
+      const iterator = {
+        next() {
+          reads++;
+          if (reads === 1) {
+            return Promise.resolve({ value: "a", done: false });
+          }
+          return new Promise<IteratorResult<string>>((resolve) => {
+            release = resolve;
+          });
+        },
+      };
+      const serialized: unknown[] = [];
+      t.app.use(() =>
+        iterable(iterator, {
+          serializer: (value) => {
+            serialized.push(value);
+            return new TextEncoder().encode(String(value));
+          },
+        }),
+      );
+      const controller = new AbortController();
+      const result = await t.fetch("/", { signal: controller.signal });
+      const reader = result.body!.getReader();
+      await reader.read();
+      await vi.waitFor(() => expect(release).toBeDefined());
+      controller.abort();
+      reader.cancel().catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      release!({ value: "b", done: false });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(serialized).toEqual(["a"]);
+    });
+
     describe("iterable support", () => {
       const cases: [string, () => unknown][] = [
         ["Array", () => ["the-value"]],

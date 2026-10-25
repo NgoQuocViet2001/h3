@@ -234,6 +234,10 @@ export async function iterable<Value = unknown, Return = unknown>(
         while (!cancelled) {
           const { value, done } = first ?? (await iterator.next());
           first = undefined;
+          // The stream may have been cancelled while waiting for the value.
+          if (cancelled) {
+            return;
+          }
           const chunk = value === undefined ? undefined : serializer(value);
           if (chunk !== undefined) {
             controller.enqueue(chunk);
