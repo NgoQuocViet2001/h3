@@ -24,6 +24,29 @@ describeMatrix("iterable", (t, { it, expect, describe }) => {
       expect(await result.text()).toBe("ab");
     });
 
+    it("stops reading skipped values once the response is cancelled", async () => {
+      let reads = 0;
+      // No `return()`, so cancelling can only stop the reads, not end the iterator.
+      const iterator = {
+        async next() {
+          reads++;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return { value: reads === 1 ? "a" : undefined, done: reads > 200 };
+        },
+      };
+      t.app.use(() => iterable(iterator));
+      const controller = new AbortController();
+      const result = await t.fetch("/", { signal: controller.signal });
+      const reader = result.body!.getReader();
+      await reader.read();
+      controller.abort();
+      reader.cancel().catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const readsAfterCancel = reads;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(reads).toBe(readsAfterCancel);
+    });
+
     describe("iterable support", () => {
       const cases: [string, () => unknown][] = [
         ["Array", () => ["the-value"]],

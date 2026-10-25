@@ -225,12 +225,13 @@ export async function iterable<Value = unknown, Return = unknown>(
   // Pull the first chunk up-front: the response is built as soon as the handler returns, so this
   // is the only point where the producer can still influence status and headers.
   let first: IteratorResult<Value | Return> | undefined = await iterator.next();
+  let cancelled = false;
   return new HTTPResponse(
     new ReadableStream({
       async pull(controller) {
         // A pull that enqueues nothing can leave a pending read unanswered,
-        // so keep reading past skipped values.
-        for (;;) {
+        // so keep reading past skipped values until the stream is cancelled.
+        while (!cancelled) {
           const { value, done } = first ?? (await iterator.next());
           first = undefined;
           const chunk = value === undefined ? undefined : serializer(value);
@@ -247,6 +248,7 @@ export async function iterable<Value = unknown, Return = unknown>(
         }
       },
       cancel() {
+        cancelled = true;
         iterator.return?.();
       },
     }),
